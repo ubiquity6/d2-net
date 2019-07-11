@@ -58,7 +58,7 @@ class D2Net(nn.Module):
         self.localization = HandcraftedLocalizationModule()
 
         if model_file is not None:
-            self.load_state_dict(torch.load(model_file)['model'])
+            self.load_state_dict(torch.load(model_file, map_location="cpu")['model'])
 
     def forward(self, batch):
         _, _, h, w = batch.size()

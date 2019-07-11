@@ -20,6 +20,14 @@ from lib.exceptions import NoGradientError
 from lib.loss import loss_function
 from lib.model import D2Net
 
+# Inside my model training code
+import time
+import wandb
+wandb.init(
+    project="d2-net-ots",
+    name="d2-net MD test",
+)
+
 # Ignore EXIF warnings
 warnings.filterwarnings("ignore", "Corrupt EXIF data", UserWarning)
 warnings.filterwarnings("ignore", "Possibly corrupt EXIF data", UserWarning)
@@ -87,10 +95,8 @@ parser.add_argument(
     help='loss logging file'
 )
 
-parser.add_argument(
-    '--checkpoint_directory', type=str, default='checkpoints',
-    help='directory for training checkpoints'
-)
+# Checkpoints are saved in wandb run dir
+
 parser.add_argument(
     '--checkpoint_prefix', type=str, default='d2',
     help='prefix for training checkpoints'
@@ -100,11 +106,15 @@ args = parser.parse_args()
 
 print(args)
 
+wandb.config.update(args)
+
 # Creating CNN model
 model = D2Net(
     model_file=args.model_file,
     use_cuda=use_cuda
 )
+
+wandb.watch(model)
 
 # Optimizer
 optimizer = optim.Adam(
@@ -154,6 +164,7 @@ def process_epoch(
     torch.set_grad_enabled(train)
 
     progress_bar = tqdm(enumerate(dataloader), total=len(dataloader))
+    time_epoch_start = time.time()
     for batch_idx, batch in progress_bar:
         if train:
             optimizer.zero_grad()
@@ -176,30 +187,28 @@ def process_epoch(
         progress_bar.set_postfix(loss=('%.4f' % np.mean(epoch_losses)))
 
         if batch_idx % args.log_interval == 0:
+
             log_file.write('[%s] epoch %d - batch %d / %d - avg_loss: %f\n' % (
                 'train' if train else 'valid',
                 epoch_idx, batch_idx, len(dataloader), np.mean(epoch_losses)
             ))
+            wandb.log({'epoch': epoch_idx, 'batch': batch_idx, 'avg_loss': np.mean(epoch_losses)}, commit=False)
 
         if train:
             loss.backward()
             optimizer.step()
+    duration = time.time() - time_epoch_start
+    avg_loss = np.mean(epoch_losses)
+    wandb.log({'epoch': epoch_idx, 'avg_loss': avg_loss, 'train': train, 'time': duration}, step=epoch_idx)
 
     log_file.write('[%s] epoch %d - avg_loss: %f\n' % (
         'train' if train else 'valid',
         epoch_idx,
-        np.mean(epoch_losses)
+        avg_loss
     ))
     log_file.flush()
 
-    return np.mean(epoch_losses)
-
-
-# Create the checkpoint directory
-if not os.path.isdir(args.checkpoint_directory):
-    os.mkdir(args.checkpoint_directory)
-else:
-    print('[Warning] Checkpoint directory already exists.')
+    return avg_loss
 
 # Open the log file for writing
 if os.path.exists(args.log_file):
@@ -244,7 +253,7 @@ for epoch_idx in range(1, args.num_epochs + 1):
 
     # Save the current checkpoint
     checkpoint_path = os.path.join(
-        args.checkpoint_directory,
+        wandb.run.dir,
         '%s.%02d.pth' % (args.checkpoint_prefix, epoch_idx)
     )
     checkpoint = {
@@ -262,7 +271,7 @@ for epoch_idx in range(1, args.num_epochs + 1):
     ):
         min_validation_loss = validation_loss_history[-1]
         best_checkpoint_path = os.path.join(
-            args.checkpoint_directory,
+            wandb.run.dir,
             '%s.best.pth' % args.checkpoint_prefix
         )
         shutil.copy(checkpoint_path, best_checkpoint_path)

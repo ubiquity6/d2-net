@@ -9,3 +9,4 @@ hpatches_sequences/hpatches-sequences-release*
 hpatches_sequences/cache/
 hpatches_sequences/.ipynb_checkpoints
 vlfeat
+.vscode
